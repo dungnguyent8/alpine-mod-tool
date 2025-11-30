@@ -2361,6 +2361,110 @@ const  Gg = Re({
         function m(v) {
             v && he.devtools.inspectedWindow.eval(`window.${Yi} && window.${Yi}("${v}")`)
         }
+        function q(v) {
+            if (v) {
+                // Component logging function
+                he.devtools.inspectedWindow.eval(`
+                    (function() {
+                        const alpineElements = Array.from(document.querySelectorAll('[x-data]'));
+                        let targetElement = null;
+
+                        for (const el of alpineElements) {
+                            const devtoolsId = el.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__?.id;
+
+                            if (devtoolsId == ${v}) {
+                                targetElement = el;
+                                break;
+                            }
+                        }
+
+                        console.log('Element found:', targetElement);
+
+                      if (targetElement) {
+                            const internals = targetElement.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__;
+
+                            // Log DevTools internals if available
+                            if (internals) {
+                                // Parse and log serialized data if available
+                                if (internals.serializedData) {
+                                    try {
+                                        const componentData = JSON.parse(internals.serializedData);
+                                        console.log('Component data:', componentData);
+                                    } catch (e) {
+                                        console.log('Serialized data (raw):', internals.serializedData);
+                                    }
+                                }
+                            }
+
+                            // Log Alpine data stack if available
+                            if (targetElement._x_dataStack && targetElement._x_dataStack.length > 0) {
+                                console.log('Alpine data stack:', targetElement._x_dataStack);
+                            }
+                        } else {
+                            console.warn('Element not found with ID:', ${v});
+                        }
+
+                        return targetElement;
+                    })()
+                `);
+            }
+        }
+
+        function logComponentMethod(componentId, methodName) {
+            if (componentId && methodName) {
+                he.devtools.inspectedWindow.eval(`
+                    (function() {
+                        try {
+                            // Find the component element
+                            const alpineElements = Array.from(document.querySelectorAll('[x-data]'));
+                            let targetElement = null;
+                            let componentData = null;
+
+                            for (const el of alpineElements) {
+                                const devtoolsId = el.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__?.id;
+                                if (devtoolsId == ${componentId}) {
+                                    targetElement = el;
+                                    break;
+                                }
+                            }
+
+                            if (targetElement) {
+                                // Try to get component data
+                                const internals = targetElement.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__;
+                                if (internals && internals.serializedData) {
+                                    try {
+                                        componentData = JSON.parse(internals.serializedData);
+                                        console.log('Component data:', componentData);
+                                    } catch (e) {
+                                        console.log('Could not parse component data');
+                                    }
+                                }
+
+                                // Also try Alpine data stack
+                                if (targetElement._x_dataStack && targetElement._x_dataStack.length > 0) {
+                                    console.log('Alpine data stack:', targetElement._x_dataStack);
+                                    // Try to find method in data stack
+                                    for (const data of targetElement._x_dataStack) {
+                                        if (data && typeof data["${methodName}"] === 'function') {
+                                            const method = data["${methodName}"];
+                                            console.log('Method found in data stack:', method);
+                                            return;
+                                        }
+                                    }
+                                }
+
+                                console.log('Method not found in component data or data stack');
+                            } else {
+                                console.log('Component element not found');
+                            }
+                        } catch (e) {
+                            console.error('Error accessing component method:', e);
+                        }
+                    })()
+                `);
+            }
+        }
+
         function y(v) {
             v.dataSource === "component" && t.editComponentAttribute(String(v.entityId), v.attributeSequence, v.attributeValue)
         }
@@ -2393,6 +2497,13 @@ const  Gg = Re({
                 onClick: f[1] || (f[1] = tt(x => p(r.value?.id || ""), ["stop"]))
             }, [ge(G(Cs), {
                 icon: "carbon:code-block",
+                class: "h-4 w-4"
+            })]), b("button", {
+                class: "rounded-full p-1 text-devtools-text-secondary hover:bg-devtools-state-hover dark:text-devtools-text-secondary-dark dark:hover:bg-devtools-state-hover-dark",
+                title: "Log element to console",
+                onClick: f[11] || (f[11] = tt(x => q(r.value?.id || ""), ["stop"]))
+            }, [ge(G(Cs), {
+                icon: "carbon:terminal",
                 class: "h-4 w-4"
             })])])])) : ae("", !0), r.value ? ae("", !0) : (C(),
             N("div", Ng, re(n.value.length > 0 ? "Select a component to view" : ""), 1)), b("div", {
@@ -2454,16 +2565,26 @@ const  Gg = Re({
                 class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark"
             }, " methods: { ", -1)), b("div", Wg, [(C(!0),
             N(ce, null, Oe(i.value.methods, x => (C(),
-            ke($t, {
+            N("div", {
                 key: x.id,
-                id: x.id,
-                "data-source": "component",
-                attribute: x,
-                "flattened-data": G(t).selectedComponentFlattenedData || [],
-                "entity-id": r.value?.id || "",
-                "entity-name": r.value?.tagName || "",
-                onUpdateData: y
-            }, null, 8, ["id", "attribute", "flattened-data", "entity-id", "entity-name"]))), 128))]), f[10] || (f[10] = b("div", {
+                class: "cursor-pointer hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark p-2 rounded transition-colors",
+                "data-method-name": x.name || "",
+                onClick: f[12] || (f[12] = function(event) {
+                    const componentId = r.value?.id || "";
+                    const methodName = event.currentTarget.getAttribute("data-method-name") || "";
+                    console.log("Clicked component method:", methodName); // Debug
+                    if (componentId && methodName) {
+                        logComponentMethod(componentId, methodName);
+                    }
+                })
+            }, [
+                b("span", {
+                    class: "text-devtools-text-primary dark:text-devtools-text-primary-dark"
+                }, re(x.name + ": "), 1),
+                b("span", {
+                    class: "text-devtools-text-secondary dark:text-devtools-text-secondary-dark ml-2"
+                }, re("(function)"), 1)
+            ]))), 128))]), f[10] || (f[10] = b("div", {
                 class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark"
             }, " } ", -1))])) : ae("", !0)])], 2)])]),
             _: 1
@@ -3169,6 +3290,41 @@ const  xy = Re({
             f.dataSource === "store" && (a.value && (f.attributeSequence = ""),
             t.editStoreAttribute(f.entityName, f.attributeSequence, f.attributeValue))
         }
+        function logStore(storeName) {
+            if (storeName) {
+                he.devtools.inspectedWindow.eval(`
+                    (function() {
+                        try {
+                            // Get specific store data
+                            console.log('storeData:')
+                            console.log('tmp')
+                            tmp = Alpine.store("${storeName}");
+                            console.log(tmp);
+                        } catch (e) {
+                            console.error('Error accessing Alpine store:', e);
+                        }
+                    })()
+                `);
+            }
+        }
+
+        function logStoreMethod(storeName, methodName) {
+            if (storeName && methodName) {
+                he.devtools.inspectedWindow.eval(`
+                    (function() {
+                        try {
+                            const storeData = Alpine.store("${storeName}");
+                            window.vm_${methodName} = storeData["${methodName}"];
+                            console.log('vm_${methodName}');
+                            console.log(vm_${methodName});
+
+                        } catch (e) {
+                            console.error('Error accessing store method:', e);
+                        }
+                    })()
+                `);
+            }
+        }
         return (f, x) => (C(),
         ke(Vi, {
             direction: m.value,
@@ -3189,9 +3345,24 @@ const  xy = Re({
                 class: "h-4 w-4"
             }), b("div", sy, [b("span", oy, re(S.name), 1), b("span", iy, re(S.type), 1)])], 10, ry))), 128))])]),
             right: Mt( () => [b("div", ly, [r.value ? (C(),
-            N("div", ay, x[0] || (x[0] = [b("div", {
+            N("div", ay, [x[0] || (x[0] = b("div", {
                 class: "h-[27px]"
-            }, null, -1)]))) : ae("", !0), r.value ? ae("", !0) : (C(),
+            }, null, -1)), b("div", {
+                class: "flex gap-1",
+                style: "position: absolute; right: 8px; top: 8px;"
+            }, [b("button", {
+                class: "rounded-full p-1 text-devtools-text-secondary hover:bg-devtools-state-hover dark:text-devtools-text-secondary-dark dark:hover:bg-devtools-state-hover-dark",
+                title: "Log store to console",
+                onClick: x[11] || (x[11] = function() {
+                    const storeName = r.value?.name || "";
+                    if (storeName) {
+                        logStore(storeName);
+                    }
+                })
+            }, [ge(G(Cs), {
+                icon: "carbon:terminal",
+                class: "h-4 w-4"
+            })])])])) : ae("", !0), r.value ? ae("", !0) : (C(),
             N("div", cy, " Select a store to view ")), b("div", {
                 class: de([{
                     hidden: !r.value
@@ -3247,16 +3418,26 @@ const  xy = Re({
                 class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark"
             }, " methods: { ", -1)), b("div", by, [(C(!0),
             N(ce, null, Oe(l.value, S => (C(),
-            ke($t, {
+            N("div", {
                 key: S.id,
-                id: S.id,
-                "data-source": "store",
-                attribute: S,
-                "flattened-data": G(t).selectedStoreFlattenedData || [],
-                "entity-id": r.value?.id || 0,
-                "entity-name": r.value?.name || "",
-                onUpdateData: v
-            }, null, 8, ["id", "attribute", "flattened-data", "entity-id", "entity-name"]))), 128))]), x[8] || (x[8] = b("div", {
+                class: "cursor-pointer hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark p-2 rounded transition-colors",
+                "data-method-name": S.name || "",
+                onClick: x[12] || (x[12] = function(event) {
+                    const storeName = r.value?.name || "";
+                    const methodName = event.currentTarget.getAttribute("data-method-name") || "";
+                    console.log("Clicked method:", methodName); // Debug
+                    if (storeName && methodName) {
+                        logStoreMethod(storeName, methodName);
+                    }
+                })
+            }, [
+                b("span", {
+                    class: "text-devtools-text-primary dark:text-devtools-text-primary-dark"
+                }, re(S.name + ": "), 1),
+                b("span", {
+                    class: "text-devtools-text-secondary dark:text-devtools-text-secondary-dark ml-2"
+                }, re("(function)"), 1)
+            ]))), 128))]), x[8] || (x[8] = b("div", {
                 class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark"
             }, " } ", -1))])) : ae("", !0)])) : (C(),
             N("div", yy, " No data available "))], 2)])]),
