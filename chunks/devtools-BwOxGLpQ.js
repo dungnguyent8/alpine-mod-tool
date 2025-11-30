@@ -1,1 +1,39 @@
-import{b as t,A as r}from"./constants-Danu3nx7.js";let e=!1,a=0;t.devtools.network.onNavigated.addListener(n);const l=setInterval(n,1e3);n();function n(){if(e||a++>10){clearInterval(l);return}t.devtools.inspectedWindow.eval(`!!(window.${r})`,function(o){!o||e||(clearInterval(l),e=!0,t.devtools.panels.create("Alpine.js Pro","/icons/128.png","/devtools-panel.html",()=>{}))})}
+import { b as browserAPI, A as alpineDetectionFlag } from "./constants-Danu3nx7.js";
+
+let devtoolsPanelCreated = false;
+let retryCount = 0;
+
+// Listen for navigation events
+browserAPI.devtools.network.onNavigated.addListener(checkForAlpine);
+
+// Set up periodic checking
+const checkInterval = setInterval(checkForAlpine, 1000);
+
+// Initial check
+checkForAlpine();
+
+function checkForAlpine() {
+    // Stop checking if panel is created or we've tried too many times
+    if (devtoolsPanelCreated || retryCount++ > 10) {
+        clearInterval(checkInterval);
+        return;
+    }
+    
+    // Check if Alpine.js Pro DevTools detection flag exists
+    browserAPI.devtools.inspectedWindow.eval(`!!(window.${alpineDetectionFlag})`, function(alpineDetected) {
+        if (!alpineDetected || devtoolsPanelCreated) return;
+        
+        // Alpine detected, create the devtools panel
+        clearInterval(checkInterval);
+        devtoolsPanelCreated = true;
+        
+        browserAPI.devtools.panels.create(
+            "Alpine.js Pro",
+            "/icons/128.png",
+            "/devtools-panel.html",
+            function() {
+                // Panel created callback
+            }
+        );
+    });
+}
