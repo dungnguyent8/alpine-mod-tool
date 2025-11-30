@@ -1,0 +1,1 @@
+import{b as t,A as r}from"./constants-Danu3nx7.js";let e=!1,a=0;t.devtools.network.onNavigated.addListener(n);const l=setInterval(n,1e3);n();function n(){if(e||a++>10){clearInterval(l);return}t.devtools.inspectedWindow.eval(`!!(window.${r})`,function(o){!o||e||(clearInterval(l),e=!0,t.devtools.panels.create("Alpine.js Pro","/icons/128.png","/devtools-panel.html",()=>{}))})}
