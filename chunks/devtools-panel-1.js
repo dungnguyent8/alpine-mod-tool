@@ -3457,7 +3457,7 @@ const Bt = Mn("ui", {
             return t.theme === "system" ? e.systemTheme : t.theme
         },
         shouldShowNagScreen() {
-            return Js().isActivated ? !1 : this.lastNagScreenShownAt ? Date.now() - this.lastNagScreenShownAt > 1440 * 60 * 1e3 : !0
+            return false
         }
     },
     actions: {
@@ -5418,7 +5418,7 @@ const wm = {
   , Dm = Re({
     __name: "License",
     setup(e) {
-        const t = Js()
+        const t = { isActivated: true }
           , n = Bt()
           , r = te( () => !t.isActivated)
           , s = () => {
@@ -6847,7 +6847,7 @@ const ab = {
   , Bb = Re({
     __name: "LicenseSettings",
     setup(e) {
-        const t = Js()
+        const t = { deviceName: "", licenseKey: "" }
           , n = X("")
           , r = X("");
         function s() {
@@ -7009,9 +7009,7 @@ const ab = {
             t.updateSetting("customAttributesToDetect", i)
         }
         return (o, i) => (C(),
-        N("div", Vb, [b("div", zb, [b("div", qb, [b("div", Kb, [i[4] || (i[4] = b("h4", {
-            class: "mb-2 text-lg font-medium text-devtools-text-primary dark:text-devtools-text-primary-dark"
-        }, " License management ", -1)), ge(Bb)]), b("div", Wb, [i[8] || (i[8] = b("h4", {
+        N("div", Vb, [b("div", zb, [b("div", qb, [b("div", Wb, [i[8] || (i[8] = b("h4", {
             class: "mb-2 text-lg font-medium text-devtools-text-primary dark:text-devtools-text-primary-dark"
         }, " Theme ", -1)), b("div", Gb, [b("button", {
             class: de(["flex items-center rounded border px-4 py-2", {
@@ -7343,7 +7341,7 @@ const ab = {
         }
         )
           , n = Bt()
-          , r = Js()
+          , r = { isActivated: true }
           , s = te( () => n.shouldShowNagScreen);
         function o() {
             const i = n.effectiveTheme;
@@ -7353,8 +7351,6 @@ const ab = {
         }
         return ut( () => {
             o(),
-            r.loadLicenseFromStorage(),
-            r.validateLicense(),
             n.loadNagScreenFromStorage(),
             je( () => n.effectiveTheme, () => {
                 o()
@@ -7364,10 +7360,7 @@ const ab = {
         ),
         (i, l) => (C(),
         N("div", wy, [ge(Rm), b("main", ky, [(C(),
-        ke(Hd(t.value))), ge(Dm), s.value ? (C(),
-        ke(Vm, {
-            key: 0
-        })) : ae("", !0)])]))
+        ke(Hd(t.value)))])]))
     }
 })
   , Sy = up();
