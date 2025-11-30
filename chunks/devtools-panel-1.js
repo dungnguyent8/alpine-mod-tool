@@ -2429,31 +2429,15 @@ const  Gg = Re({
                             }
 
                             if (targetElement) {
-                                // Try to get component data
-                                const internals = targetElement.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__;
-                                if (internals && internals.serializedData) {
-                                    try {
-                                        componentData = JSON.parse(internals.serializedData);
-                                        console.log('Component data:', componentData);
-                                    } catch (e) {
-                                        console.log('Could not parse component data');
-                                    }
-                                }
 
                                 // Also try Alpine data stack
                                 if (targetElement._x_dataStack && targetElement._x_dataStack.length > 0) {
                                     console.log('Alpine data stack:', targetElement._x_dataStack);
+                                    window.vm_method = targetElement._x_dataStack
                                     // Try to find method in data stack
-                                    for (const data of targetElement._x_dataStack) {
-                                        if (data && typeof data["${methodName}"] === 'function') {
-                                            const method = data["${methodName}"];
-                                            console.log('Method found in data stack:', method);
-                                            return;
-                                        }
-                                    }
+                                    console.log('vm_method[0].${methodName}:', vm_method[0].${methodName});
                                 }
 
-                                console.log('Method not found in component data or data stack');
                             } else {
                                 console.log('Component element not found');
                             }
@@ -3313,10 +3297,9 @@ const  xy = Re({
                 he.devtools.inspectedWindow.eval(`
                     (function() {
                         try {
-                            const storeData = Alpine.store("${storeName}");
-                            window.vm_${methodName} = storeData["${methodName}"];
-                            console.log('vm_${methodName}');
-                            console.log(vm_${methodName});
+                            window.vm_ = Alpine.store("${storeName}");
+                            console.log('vm_.${methodName}');
+                            console.log(vm_.${methodName});
 
                         } catch (e) {
                             console.error('Error accessing store method:', e);
