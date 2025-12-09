@@ -2041,8 +2041,12 @@ const $t = Re({
             type: String,
             default: "",
         },
+        isArrayItem: {
+            type: Boolean,
+            default: !1
+        },
     },
-    emits: ["update-data"],
+    emits: ["update-data", "delete-property"],
     setup(e, { emit: t }) {
         const n = e,
             r = t,
@@ -2097,6 +2101,15 @@ const $t = Re({
             a = () => {
                 Ru({
                     id: n?.attribute?.value?.devtoolsId,
+                });
+            },
+            deleteItem = () => {
+                const V = n.dataSource === "component" ? n.attribute.path || n.id : n.attribute.path || n.attribute.name;
+                r("delete-property", {
+                    dataSource: n.dataSource,
+                    entityId: n.entityId,
+                    entityName: n.entityName,
+                    attributeSequence: V,
                 });
             },
             u = () => {
@@ -2489,6 +2502,33 @@ const $t = Re({
                             8,
                             vg
                         ),
+                        e.isArrayItem
+                            ? (C(),
+                                N(
+                                    "svg",
+                                    {
+                                        fill: "currentColor",
+                                        onClick: D[20] || (D[20] = (ie) => deleteItem()),
+                                        viewBox: "0 0 20 20",
+                                        class:
+                                            "ml-2 flex h-4 w-4 flex-shrink-0 cursor-pointer text-devtools-text-disabled hover:text-devtools-error dark:text-devtools-text-disabled-dark dark:hover:text-devtools-error-dark transition-opacity",
+                                        title: "Remove item"
+                                    },
+                                    D[21] ||
+                                    (D[21] = [
+                                        b(
+                                            "path",
+                                            {
+                                                "fill-rule": "evenodd",
+                                                d: "M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z",
+                                                "clip-rule": "evenodd",
+                                            },
+                                            null,
+                                            -1
+                                        ),
+                                    ])
+                                ))
+                            : ae("", !0),
                         m.value && y.value.length > 0
                             ? (C(!0),
                                 N(
@@ -2516,7 +2556,10 @@ const $t = Re({
                                                             "flattened-data": e.flattenedData,
                                                             "entity-id": e.entityId,
                                                             "entity-name": e.entityName,
+                                                            "entity-name": e.entityName,
                                                             onUpdateData: D[14] || (D[14] = (Ze) => V.$emit("update-data", Ze)),
+                                                            onDeleteProperty: D[22] || (D[22] = (Ze) => V.$emit("delete-property", Ze)),
+                                                            isArrayItem: c.value === 'array'
                                                         },
                                                         null,
                                                         8,
@@ -2757,6 +2800,38 @@ const Kg = {
 const Wg = {
     class: "ml-[8px]",
 };
+
+function handleDeleteProperty(payload) {
+    const { dataSource, entityId, entityName, attributeSequence } = payload;
+    const code = `(function() {
+        try {
+            let target;
+            if ("${dataSource}" === "store") {
+                target = Alpine.store("${entityName}");
+            } else if ("${dataSource}" === "component") {
+                const all = Array.from(document.querySelectorAll('[x-data]'));
+                const el = all.find(e => e.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__?.id == "${entityId}");
+                if (el) target = Alpine.$data(el);
+            }
+            
+            if (!target) return;
+            
+            const path = "${attributeSequence}".split('.');
+            const key = path.pop();
+            const parent = path.reduce((acc, k) => acc[k], target);
+            
+            if (parent) {
+                if (Array.isArray(parent)) {
+                    parent.splice(Number(key), 1);
+                } else {
+                    delete parent[key];
+                }
+            }
+        } catch(e) { console.error('Delete failed:', e); }
+    })()`;
+    he.devtools.inspectedWindow.eval(code);
+}
+
 const Gg = Re({
     __name: "Components",
     setup(e) {
@@ -3142,6 +3217,7 @@ const Gg = Re({
                                                                                 "entity-id": r.value?.id || "",
                                                                                 "entity-name": r.value?.tagName || "",
                                                                                 onUpdateData: y,
+                                                                                onDeleteProperty: handleDeleteProperty,
                                                                             },
                                                                             null,
                                                                             8,
@@ -4636,6 +4712,7 @@ const xy = Re({
                                                                                             "entity-id": r.value?.id || 0,
                                                                                             "entity-name": r.value?.name || "",
                                                                                             onUpdateData: v,
+                                                                                            onDeleteProperty: handleDeleteProperty,
                                                                                         },
                                                                                         null,
                                                                                         8,
