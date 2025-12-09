@@ -48,7 +48,7 @@ import {
     jn,
     Bt,
     Vn,
-    Xs,
+    useStoresStore,
     gu,
 } from "./dist/base-4.js";
 
@@ -1549,6 +1549,11 @@ const Rm = Re({
                     id: "events",
                     title: "Events",
                     icon: "carbon:roadmap",
+                },
+                {
+                    id: "mutations",
+                    title: "Mutations",
+                    icon: "carbon:time",
                 },
             ]),
             a = X(
@@ -3311,7 +3316,7 @@ const Qg = Re({
         const t = Bt(),
             n = jn(),
             r = Vn(),
-            s = Xs(),
+            s = useStoresStore(),
             o = ["components", "stores", "ui", "settings"],
             i = X("components"),
             l = te(() => {
@@ -4366,7 +4371,7 @@ const yy = {
 const xy = Re({
     __name: "Stores",
     setup(e) {
-        const t = Xs(),
+        const t = useStoresStore(),
             n = te(() => t.filteredStores),
             r = te(() => t.selectedStore),
             s = te(() => t.sortedAttributes?.filter((f) => !f.parentId) || []),
@@ -4797,6 +4802,318 @@ const xy = Re({
         );
     },
 });
+
+// ==================== MUTATIONS TIMELINE ====================
+const Mb_container = {
+    class: "relative flex h-full max-h-full min-h-full min-w-full flex-col justify-start overflow-y-auto bg-devtools-surface p-1 scrollbar-hide dark:bg-devtools-surface-dark",
+};
+const Mb_header = {
+    class: "sticky left-0 top-0 z-20 flex h-[32px] w-full items-center justify-between border-b border-devtools-divider bg-devtools-surface px-2 dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+};
+const Mb_item = {
+    class: "flex w-full cursor-pointer items-center justify-between overflow-hidden break-all rounded px-2 py-1 text-left font-mono transition hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark",
+};
+const Mb_empty = {
+    class: "flex h-full w-full items-center justify-center p-4 text-devtools-text-secondary dark:text-devtools-text-secondary-dark",
+};
+const Mb_detail = {
+    class: "relative flex h-full max-h-full flex-col overflow-y-auto bg-devtools-surface scrollbar-hide dark:bg-devtools-surface-dark",
+};
+const Mb_badge = {
+    class: "ml-2 rounded bg-devtools-primary px-1.5 py-0.5 text-[10px] font-medium text-white dark:bg-devtools-primary-dark",
+};
+
+// Mutations store for tracking
+let mutationsData = X([]);
+let mutationIdCounter = X(0);
+let selectedMutation = X(null);
+let storeFilter = X("");
+let isTracking = X(true);
+
+function addMutation(mutation) {
+    if (!isTracking.value) return;
+    mutationIdCounter.value++;
+    mutationsData.value.push({
+        id: mutationIdCounter.value,
+        timestamp: new Date(),
+        ...mutation
+    });
+    // Keep only last 500 mutations
+    if (mutationsData.value.length > 500) {
+        mutationsData.value = mutationsData.value.slice(-500);
+    }
+}
+
+function clearMutations() {
+    mutationsData.value = [];
+    selectedMutation.value = null;
+}
+
+let pollingInterval = null;
+let storeWatchInterval = null;
+
+function initMutationTracking() {
+    console.log('[DevTools Panel] initMutationTracking called');
+
+    try {
+        // First, inject initialization script to setup mutation queue
+        he.devtools.inspectedWindow.eval(`
+            (function() {
+                if (!window.__ALPINE_MUTATIONS_QUEUE__) {
+                    window.__ALPINE_MUTATIONS_QUEUE__ = [];
+                }
+                if (!window.__ALPINE_TRACKED_STORES__) {
+                    window.__ALPINE_TRACKED_STORES__ = new Set();
+                }
+                
+                // Function to watch a store
+                window.__watchAlpineStore__ = function(storeName) {
+                    if (window.__ALPINE_TRACKED_STORES__.has(storeName)) {
+                        // Store is already watched, just return quiet confirmation
+                        return 'already_watching';
+                    }
+                    
+                    if (typeof Alpine === 'undefined') {
+                        console.error('[Alpine DevTools] Alpine not defined');
+                        return 'no_alpine';
+                    }
+                    
+                    try {
+                        const store = Alpine.store(storeName);
+                        if (!store || typeof store !== 'object') {
+                            console.log('[Alpine DevTools] Store not found or not object:', storeName);
+                            return 'not_found';
+                        }
+                        
+                        window.__ALPINE_TRACKED_STORES__.add(storeName);
+                        console.log('[Alpine DevTools] Now watching store:', storeName);
+                        
+                        let previousSnapshot = JSON.stringify(store);
+                        
+                        setInterval(() => {
+                            try {
+                                const currentSnapshot = JSON.stringify(store);
+                                if (currentSnapshot !== previousSnapshot) {
+                                    const prev = JSON.parse(previousSnapshot);
+                                    const curr = JSON.parse(currentSnapshot);
+                                    
+                                    const allKeys = new Set([...Object.keys(prev), ...Object.keys(curr)]);
+                                    allKeys.forEach(key => {
+                                        if (typeof curr[key] === 'function' || typeof prev[key] === 'function') return;
+                                        
+                                        const prevVal = JSON.stringify(prev[key]);
+                                        const currVal = JSON.stringify(curr[key]);
+                                        if (prevVal !== currVal) {
+                                            window.__ALPINE_MUTATIONS_QUEUE__.push({
+                                                storeName: storeName,
+                                                property: key,
+                                                oldValue: prev[key],
+                                                newValue: curr[key],
+                                                mutationType: prev[key] === undefined ? 'add' : (curr[key] === undefined ? 'delete' : 'set'),
+                                                timestamp: Date.now()
+                                            });
+                                        }
+                                    });
+                                    
+                                    previousSnapshot = currentSnapshot;
+                                }
+                            } catch(e) {}
+                        }, 200);
+                        
+                        return 'watching';
+                    } catch(e) {
+                        console.error('[Alpine DevTools] Error:', e);
+                        return 'error';
+                    }
+                };
+                
+                console.log('[Alpine DevTools] Mutation tracking ready');
+                return 'ready';
+            })()
+        `);
+
+        // Periodically try to watch stores from the DevTools internal state
+        if (storeWatchInterval) clearInterval(storeWatchInterval);
+        storeWatchInterval = setInterval(() => {
+            try {
+                const storesStore = useStoresStore();
+                const storesList = storesStore?.filteredStores || [];
+
+                if (storesList.length > 0) {
+                    console.log('[DevTools Panel] Found stores:', storesList.map(s => s.name));
+                }
+
+                storesList.forEach(store => {
+                    const name = store?.name;
+                    if (name) {
+                        he.devtools.inspectedWindow.eval(
+                            `window.__watchAlpineStore__ && window.__watchAlpineStore__("${name}")`
+                        );
+                    }
+                });
+            } catch (e) {
+                console.log('[DevTools Panel] Error in storeWatchInterval:', e);
+            }
+        }, 2000);
+
+        // Poll for mutations
+        if (pollingInterval) clearInterval(pollingInterval);
+        pollingInterval = setInterval(() => {
+            if (!isTracking.value) return;
+
+            he.devtools.inspectedWindow.eval(`
+                (function() {
+                    if (!window.__ALPINE_MUTATIONS_QUEUE__ || window.__ALPINE_MUTATIONS_QUEUE__.length === 0) {
+                        return '[]';
+                    }
+                    const mutations = window.__ALPINE_MUTATIONS_QUEUE__.splice(0);
+                    return JSON.stringify(mutations);
+                })()
+            `, (result, isException) => {
+                if (isException || !result) return;
+                try {
+                    const mutations = JSON.parse(result);
+                    mutations.forEach(m => {
+                        addMutation({
+                            storeName: m.storeName,
+                            property: m.property,
+                            oldValue: m.oldValue,
+                            newValue: m.newValue,
+                            mutationType: m.mutationType,
+                            pageTimestamp: m.timestamp
+                        });
+                    });
+                } catch (e) { }
+            });
+        }, 500);
+
+    } catch (e) {
+        console.error('[DevTools Panel] Error in initMutationTracking:', e);
+    }
+}
+
+const MutationsTimeline = Re({
+    __name: "MutationsTimeline",
+    setup(e) {
+        const filteredMutations = te(() => {
+            if (!storeFilter.value) return mutationsData.value;
+            return mutationsData.value.filter(m =>
+                m.storeName.toLowerCase().includes(storeFilter.value.toLowerCase())
+            );
+        });
+
+        const formatTime = (date) => {
+            return date.toLocaleTimeString('en-US', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+        };
+
+        const formatValue = (val) => {
+            if (val === undefined) return 'undefined';
+            if (val === null) return 'null';
+            if (typeof val === 'object') return JSON.stringify(val, null, 2);
+            return String(val);
+        };
+
+        const selectMutation = (m) => {
+            selectedMutation.value = m;
+        };
+
+        ut(() => {
+            initMutationTracking();
+        });
+
+        return (t, n) => (
+            C(),
+            ke(
+                Vi,
+                { class: "font-mono text-[11px] leading-5" },
+                {
+                    left: Mt(() => [
+                        b("div", Mb_container, [
+                            b("div", Mb_header, [
+                                b("div", { class: "flex items-center gap-2" }, [
+                                    b("input", {
+                                        type: "text",
+                                        placeholder: "Filter by store...",
+                                        class: "h-6 w-32 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+                                        value: G(storeFilter),
+                                        onInput: (e) => { storeFilter.value = e.target.value; }
+                                    }, null, 40, ["value", "onInput"]),
+                                    b("span", Mb_badge, re(G(mutationsData).length), 1),
+                                ]),
+                                b("div", { class: "flex items-center gap-1" }, [
+                                    b("button", {
+                                        class: "rounded px-2 py-0.5 text-[10px] hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark " + (G(isTracking) ? "text-green-500" : "text-amber-500"),
+                                        onClick: () => {
+                                            isTracking.value = !isTracking.value;
+                                        }
+                                    }, G(isTracking) ? "⏸ Tracking" : "▶ Resume", 8, ["onClick"]),
+                                    b("button", {
+                                        class: "rounded px-2 py-0.5 text-[10px] text-red-500 hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark",
+                                        onClick: clearMutations
+                                    }, "🗑 Clear"),
+                                ]),
+                            ]),
+                            G(filteredMutations).length > 0
+                                ? (C(!0), N(ce, { key: 0 }, Oe(G(filteredMutations), (m) => (
+                                    C(),
+                                    N("div", {
+                                        key: m.id,
+                                        class: de([
+                                            Mb_item.class,
+                                            { "bg-devtools-state-selected dark:bg-devtools-state-selected-dark": G(selectedMutation)?.id === m.id }
+                                        ]),
+                                        onClick: () => selectMutation(m)
+                                    }, [
+                                        b("div", { class: "flex items-center gap-2" }, [
+                                            b("span", { class: "text-devtools-primary dark:text-devtools-primary-dark font-semibold" }, re(m.storeName), 1),
+                                            b("span", { class: "text-devtools-text-secondary dark:text-devtools-text-secondary-dark" }, "." + re(m.property), 1),
+                                        ]),
+                                        b("span", { class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark text-[10px]" }, re(formatTime(m.timestamp)), 1),
+                                    ], 10, ["onClick"])
+                                )), 128))
+                                : (C(), N("div", { key: 1, ...Mb_empty }, " No mutations recorded. Make changes to Alpine stores to see them here. ")),
+                        ]),
+                    ]),
+                    right: Mt(() => [
+                        b("div", Mb_detail, [
+                            G(selectedMutation)
+                                ? (C(), N("div", { key: 0, class: "p-3" }, [
+                                    b("div", { class: "mb-3 font-semibold text-devtools-text-primary dark:text-devtools-text-primary-dark" }, [
+                                        re("Store: "),
+                                        b("span", { class: "text-devtools-primary dark:text-devtools-primary-dark" }, re(G(selectedMutation).storeName), 1),
+                                    ]),
+                                    b("div", { class: "mb-3" }, [
+                                        b("div", { class: "text-devtools-text-secondary dark:text-devtools-text-secondary-dark mb-1" }, "Property:"),
+                                        b("div", { class: "text-devtools-text-primary dark:text-devtools-text-primary-dark" }, re(G(selectedMutation).property), 1),
+                                    ]),
+                                    b("div", { class: "mb-3" }, [
+                                        b("div", { class: "text-red-500 dark:text-red-400 font-semibold mb-1" }, "Old Value:"),
+                                        b("pre", { class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark" }, re(formatValue(G(selectedMutation).oldValue)), 1),
+                                    ]),
+                                    b("div", { class: "mb-3" }, [
+                                        b("div", { class: "text-green-600 dark:text-green-400 font-semibold mb-1" }, "New Value:"),
+                                        b("pre", { class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark" }, re(formatValue(G(selectedMutation).newValue)), 1),
+                                    ]),
+                                    b("div", { class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark text-[10px]" }, [
+                                        re("Type: " + G(selectedMutation).mutationType + " | Time: " + formatTime(G(selectedMutation).timestamp)),
+                                    ]),
+                                ]))
+                                : (C(), N("div", { key: 1, ...Mb_empty }, " Select a mutation to see its details. ")),
+                        ]),
+                    ]),
+                    _: 1,
+                }
+            )
+        );
+    },
+});
+
 const wy = {
     class: "relative flex h-screen w-screen flex-row bg-devtools-surface dark:bg-devtools-surface-dark",
 };
@@ -4814,6 +5131,8 @@ const _y = Re({
                     return xy;
                 case "events":
                     return kb;
+                case "mutations":
+                    return MutationsTimeline;
                 case "settings":
                     return ey;
                 case "debug":
@@ -4855,13 +5174,24 @@ async function Ey() {
             jn(),
             Bt(),
             Vn(),
-            Xs(),
+            useStoresStore(),
             await wp(),
             oi(),
             Yr.mount("#app"),
             Y.log("Devtools panel app mounted and services initialized."),
+            // Initialize mutation tracking when panel loads
+            setTimeout(() => {
+                initMutationTracking();
+                Y.log("Mutation tracking initialized on panel load.");
+            }, 1000),
             he.devtools.network.onNavigated.addListener(() => {
                 Y.log("Page navigation detected, reinitializing connection service..."), oi();
+                // Re-initialize mutation tracking on page navigation
+                setTimeout(() => {
+                    window.__ALPINE_MUTATIONS_TRACKING__ = false; // Reset flag so it re-inits
+                    initMutationTracking();
+                    Y.log("Mutation tracking re-initialized after navigation.");
+                }, 1000);
             }));
 }
 Ey();
