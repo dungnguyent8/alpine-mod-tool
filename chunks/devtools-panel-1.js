@@ -5012,11 +5012,81 @@ const MutationsTimeline = Re({
             });
         };
 
-        const formatValue = (val) => {
-            if (val === undefined) return 'undefined';
-            if (val === null) return 'null';
-            if (typeof val === 'object') return JSON.stringify(val, null, 2);
-            return String(val);
+        const isDeepEqual = (a, b) => {
+            try { return JSON.stringify(a) === JSON.stringify(b); } catch (e) { return false; }
+        };
+
+        const renderDiffJSON = (val, other, indent = 0) => {
+            const sp = '  '.repeat(indent);
+
+            // Inline styles for reliability (Tailwind classes might be missing in build)
+            const styleNull = 'color: #718096; font-style: italic;';
+            const styleUndefined = 'color: #a0aec0; font-style: italic;';
+            const styleString = 'color: #38a169;'; // green-600
+            const styleNumber = 'color: #3182ce;'; // blue-600
+            const styleBool = 'color: #e53e3e;';   // red-600
+            const styleKey = 'color: #805ad5; font-weight: 500;'; // purple-600
+            // Dark mode overrides? We'll stick to a middle ground or use CSS variables if available. 
+            // Better: use classes if we are sure, and fallback to style? 
+            // The user said "highlight data type" worked, so those classes existed.
+            // The issue is likely the specific bg-yellow-200/50 class.
+
+            const bgDiff = 'background-color: rgba(250, 204, 21, 0.2);'; // yellow-400 at 0.2 opacity
+            const styleDiffBlock = `display: inline-block; width: 100%; border-radius: 2px; ${bgDiff}`;
+
+            // Primitive Render
+            if (val === null) return `<span style="${styleNull}">null</span>`;
+            if (val === undefined) return `<span style="${styleUndefined}">undefined</span>`;
+            if (typeof val !== 'object') {
+                let str = String(val);
+                let style = styleNumber;
+
+                if (typeof val === 'string') {
+                    style = styleString;
+                    str = JSON.stringify(val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                } else if (typeof val === 'boolean') {
+                    style = styleBool;
+                }
+                return `<span style="${style}">${str}</span>`;
+            }
+
+            // Complex Render
+            const isArr = Array.isArray(val);
+            const keys = Object.keys(val);
+            if (keys.length === 0) return isArr ? '[]' : '{}';
+
+            const open = isArr ? '[' : '{';
+            const close = isArr ? ']' : '}';
+
+            let html = open + '\n';
+
+            keys.forEach((k, i) => {
+                const v = val[k];
+                const ov = (other && typeof other === 'object') ? other[k] : undefined;
+
+                const isDiff = ov !== undefined && !isDeepEqual(v, ov);
+                const shouldHighlightLine = isDiff && (v === null || typeof v !== 'object');
+
+                let line = sp + '  ';
+                if (!isArr) {
+                    line += `<span style="${styleKey}">${JSON.stringify(k)}</span>: `;
+                }
+
+                line += renderDiffJSON(v, ov, indent + 1);
+
+                if (i < keys.length - 1) line += ',';
+
+                if (shouldHighlightLine) {
+                    // Using div inside pre might cause double newline depending on display.
+                    // Using span with display:inline-block and width:100%.
+                    html += `<span style="${styleDiffBlock}">${line}</span>\n`;
+                } else {
+                    html += line + '\n';
+                }
+            });
+
+            html += sp + close;
+            return html;
         };
 
         const selectMutation = (m) => {
@@ -5094,11 +5164,17 @@ const MutationsTimeline = Re({
                                     ]),
                                     b("div", { class: "mb-3" }, [
                                         b("div", { class: "text-red-500 dark:text-red-400 font-semibold mb-1" }, "Old Value:"),
-                                        b("pre", { class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark" }, re(formatValue(G(selectedMutation).oldValue)), 1),
+                                        b("pre", {
+                                            class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
+                                            innerHTML: renderDiffJSON(G(selectedMutation).oldValue, G(selectedMutation).newValue)
+                                        }, null, 8, ["innerHTML"]),
                                     ]),
                                     b("div", { class: "mb-3" }, [
                                         b("div", { class: "text-green-600 dark:text-green-400 font-semibold mb-1" }, "New Value:"),
-                                        b("pre", { class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark" }, re(formatValue(G(selectedMutation).newValue)), 1),
+                                        b("pre", {
+                                            class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
+                                            innerHTML: renderDiffJSON(G(selectedMutation).newValue, G(selectedMutation).oldValue)
+                                        }, null, 8, ["innerHTML"]),
                                     ]),
                                     b("div", { class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark text-[10px]" }, [
                                         re("Type: " + G(selectedMutation).mutationType + " | Time: " + formatTime(G(selectedMutation).timestamp)),
