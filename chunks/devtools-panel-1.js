@@ -4965,6 +4965,60 @@ function initMutationTracking() {
                         window.__ALPINE_TRACKED_STORES__.add(storeName);
                         console.log('[Alpine DevTools] Now watching store:', storeName);
                         
+                        // --- Function Tracking Setup ---
+                        const serializeArg = (arg) => {
+                             if (arg === null) return null;
+                             if (arg === undefined) return undefined;
+                             if (typeof arg === 'function') return '[Function]';
+                             if (typeof arg === 'object') {
+                                 if (arg instanceof Element) return '[Element: ' + arg.tagName.toLowerCase() + ']';
+                                 if (arg instanceof Event) return '[Event: ' + arg.type + ']';
+                                 try {
+                                     // Check for circular references by trying to stringify
+                                     JSON.stringify(arg);
+                                     return arg;
+                                 } catch (e) {
+                                     return '[Object (Circular/Unserializable)]';
+                                 }
+                             }
+                             return arg;
+                        };
+
+                        Object.keys(store).forEach(key => {
+                            try {
+                                if (typeof store[key] === 'function' && key !== 'init') {
+                                    const originalFn = store[key];
+                                    if (!originalFn.__devtools_wrapped) {
+                                        const wrappedFn = function(...args) {
+                                            let result;
+                                            let error;
+                                            try {
+                                                result = originalFn.apply(this, args);
+                                            } catch (err) {
+                                                error = err;
+                                                throw err;
+                                            } finally {
+                                                try {
+                                                    window.__ALPINE_MUTATIONS_QUEUE__.push({
+                                                        storeName: storeName,
+                                                        property: key + '()',
+                                                        oldValue: args.map(serializeArg), 
+                                                        newValue: error ? '[Error: ' + error.message + ']' : serializeArg(result),
+                                                        mutationType: 'function-call',
+                                                        timestamp: Date.now()
+                                                    });
+                                                } catch(e) { console.error(e); }
+                                            }
+                                            return result;
+                                        };
+                                        wrappedFn.__devtools_wrapped = true;
+                                        store[key] = wrappedFn;
+                                    }
+                                }
+                            } catch (e) { console.error('Error wrapping method', key, e); }
+                        });
+                        // -------------------------------
+                        
                         let previousSnapshot = JSON.stringify(store);
                         
                         setInterval(() => {
@@ -5252,13 +5306,16 @@ const MutationsTimeline = Re({
                                         key: m.id,
                                         class: de([
                                             Mb_item.class,
-                                            { "bg-devtools-state-selected dark:bg-devtools-state-selected-dark": G(selectedMutation)?.id === m.id }
+                                            {
+                                                "bg-devtools-state-selected dark:bg-devtools-state-selected-dark": G(selectedMutation)?.id === m.id,
+                                                "text-green-400 dark:text-green-400": m.mutationType === 'function-call' && G(selectedMutation)?.id !== m.id
+                                            }
                                         ]),
                                         onClick: () => selectMutation(m)
                                     }, [
                                         b("div", { class: "flex items-center gap-2" }, [
-                                            b("span", { class: "text-devtools-primary dark:text-devtools-primary-dark font-semibold" }, re(m.storeName), 1),
-                                            b("span", { class: "text-devtools-text-secondary dark:text-devtools-text-secondary-dark" }, "." + re(m.property), 1),
+                                            b("span", { class: m.mutationType === 'function-call' ? "text-green-400 dark:text-green-400" : "text-devtools-primary dark:text-devtools-primary-dark font-semibold" }, re(m.storeName), 1),
+                                            b("span", { class: m.mutationType === 'function-call' ? "text-green-400 dark:text-green-400" : "text-devtools-text-secondary dark:text-devtools-text-secondary-dark" }, "." + re(m.property), 1),
                                         ]),
                                         b("span", { class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark text-[10px]" }, re(formatTime(m.timestamp)), 1),
                                     ], 10, ["onClick"])
@@ -5279,18 +5336,26 @@ const MutationsTimeline = Re({
                                         b("div", { class: "text-devtools-text-primary dark:text-devtools-text-primary-dark" }, re(G(selectedMutation).property), 1),
                                     ]),
                                     b("div", { class: "mb-3" }, [
-                                        b("div", { class: "text-red-500 dark:text-red-400 font-semibold mb-1" }, "Old Value:"),
+                                        b("div", { class: "text-red-500 dark:text-red-400 font-semibold mb-1" },
+                                            G(selectedMutation).mutationType === 'function-call' ? "Arguments:" : "Old Value:"
+                                        ),
                                         b("pre", {
                                             class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
-                                            innerHTML: renderDiffJSON(G(selectedMutation).oldValue, G(selectedMutation).newValue),
+                                            innerHTML: renderDiffJSON(G(selectedMutation).oldValue,
+                                                G(selectedMutation).mutationType === 'function-call' ? undefined : G(selectedMutation).newValue
+                                            ),
                                             onClick: handleJsonClick
                                         }, null, 8, ["innerHTML"]),
                                     ]),
                                     b("div", { class: "mb-3" }, [
-                                        b("div", { class: "text-green-600 dark:text-green-400 font-semibold mb-1" }, "New Value:"),
+                                        b("div", { class: "text-green-600 dark:text-green-400 font-semibold mb-1" },
+                                            G(selectedMutation).mutationType === 'function-call' ? "Return Value:" : "New Value:"
+                                        ),
                                         b("pre", {
                                             class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
-                                            innerHTML: renderDiffJSON(G(selectedMutation).newValue, G(selectedMutation).oldValue),
+                                            innerHTML: renderDiffJSON(G(selectedMutation).newValue,
+                                                G(selectedMutation).mutationType === 'function-call' ? undefined : G(selectedMutation).oldValue
+                                            ),
                                             onClick: handleJsonClick
                                         }, null, 8, ["innerHTML"]),
                                     ]),
