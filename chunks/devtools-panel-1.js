@@ -5093,20 +5093,45 @@ const MutationsTimeline = Re({
             try { return JSON.stringify(a) === JSON.stringify(b); } catch (e) { return false; }
         };
 
+        const handleJsonClick = (event) => {
+            const target = event.target;
+            if (target.classList.contains('json-toggler')) {
+                const collapsible = target.closest('.json-collapsible');
+                if (collapsible) {
+                    const content = collapsible.querySelector('.json-content');
+                    const placeholder = collapsible.querySelector('.json-placeholder');
+
+                    if (content.style.display === 'none') {
+                        content.style.display = 'inline';
+                        placeholder.style.display = 'none';
+                        target.textContent = '▼';
+                    } else {
+                        content.style.display = 'none';
+                        placeholder.style.display = 'inline';
+                        target.textContent = '▶';
+                    }
+                }
+                event.stopPropagation();
+            } else if (target.classList.contains('json-placeholder')) {
+                const collapsible = target.closest('.json-collapsible');
+                if (collapsible) {
+                    const toggler = collapsible.querySelector('.json-toggler');
+                    if (toggler) toggler.click();
+                }
+                event.stopPropagation();
+            }
+        };
+
         const renderDiffJSON = (val, other, indent = 0) => {
             const sp = '  '.repeat(indent);
 
-            // Inline styles for reliability (Tailwind classes might be missing in build)
+            // Inline styles for reliability
             const styleNull = 'color: #718096; font-style: italic;';
             const styleUndefined = 'color: #a0aec0; font-style: italic;';
             const styleString = 'color: #38a169;'; // green-600
             const styleNumber = 'color: #3182ce;'; // blue-600
             const styleBool = 'color: #e53e3e;';   // red-600
             const styleKey = 'color: #805ad5; font-weight: 500;'; // purple-600
-            // Dark mode overrides? We'll stick to a middle ground or use CSS variables if available. 
-            // Better: use classes if we are sure, and fallback to style? 
-            // The user said "highlight data type" worked, so those classes existed.
-            // The issue is likely the specific bg-yellow-200/50 class.
 
             const bgDiff = 'background-color: rgba(250, 204, 21, 0.2);'; // yellow-400 at 0.2 opacity
             const styleDiffBlock = `display: inline-block; width: 100%; border-radius: 2px; ${bgDiff}`;
@@ -5135,7 +5160,16 @@ const MutationsTimeline = Re({
             const open = isArr ? '[' : '{';
             const close = isArr ? ']' : '}';
 
-            let html = open + '\n';
+            let html = '<span class="json-collapsible">';
+
+            // Toggler
+            html += `<span class="json-toggler" style="cursor: pointer; display: inline-block; width: 14px; text-align: center; color: #718096; user-select: none; margin-right: 2px;">▼</span>`;
+
+            html += open;
+
+            // Content
+            html += '<span class="json-content">';
+            html += '\n';
 
             keys.forEach((k, i) => {
                 const v = val[k];
@@ -5154,15 +5188,20 @@ const MutationsTimeline = Re({
                 if (i < keys.length - 1) line += ',';
 
                 if (shouldHighlightLine) {
-                    // Using div inside pre might cause double newline depending on display.
-                    // Using span with display:inline-block and width:100%.
                     html += `<span style="${styleDiffBlock}">${line}</span>\n`;
                 } else {
                     html += line + '\n';
                 }
             });
 
-            html += sp + close;
+            html += sp; // Indent for closing brace
+            html += '</span>'; // End content
+
+            // Placeholder
+            html += `<span class="json-placeholder" style="display: none; color: #a0aec0; cursor: pointer; user-select: none;"> ... </span>`;
+
+            html += close;
+            html += '</span>'; // End collapsible
             return html;
         };
 
@@ -5243,14 +5282,16 @@ const MutationsTimeline = Re({
                                         b("div", { class: "text-red-500 dark:text-red-400 font-semibold mb-1" }, "Old Value:"),
                                         b("pre", {
                                             class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
-                                            innerHTML: renderDiffJSON(G(selectedMutation).oldValue, G(selectedMutation).newValue)
+                                            innerHTML: renderDiffJSON(G(selectedMutation).oldValue, G(selectedMutation).newValue),
+                                            onClick: handleJsonClick
                                         }, null, 8, ["innerHTML"]),
                                     ]),
                                     b("div", { class: "mb-3" }, [
                                         b("div", { class: "text-green-600 dark:text-green-400 font-semibold mb-1" }, "New Value:"),
                                         b("pre", {
                                             class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
-                                            innerHTML: renderDiffJSON(G(selectedMutation).newValue, G(selectedMutation).oldValue)
+                                            innerHTML: renderDiffJSON(G(selectedMutation).newValue, G(selectedMutation).oldValue),
+                                            onClick: handleJsonClick
                                         }, null, 8, ["innerHTML"]),
                                     ]),
                                     b("div", { class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark text-[10px]" }, [
