@@ -4943,6 +4943,41 @@ function initMutationTracking() {
                     window.__ALPINE_TRACKED_STORES__ = new Set();
                 }
                 
+                // --- Component Discovery (Global) ---
+                window.__getAlpineComponents__ = () => {
+                     const components = [];
+                     document.querySelectorAll('[x-data]').forEach((el, index) => {
+                         let name = el.getAttribute('x-data');
+                         if (!name || name === '{}') {
+                             name = 'Component ' + (index + 1);
+                         }
+                         
+                         // Simple clean up of x-data="{ foo: ... }" to just "foo" if simple
+                         if (name.startsWith('{')) {
+                              name = 'Anonymous Component ' + (index + 1);
+                         }
+
+                         // Reuse existing ID if available or assign one
+                         let id = el.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__?.id;
+                         if (!id) {
+                             try {
+                                 if (!el.hasAttribute('data-alpine-devtool-id')) {
+                                     el.setAttribute('data-alpine-devtool-id', 'temp-' + index + '-' + Date.now());
+                                 }
+                                 id = el.getAttribute('data-alpine-devtool-id');
+                             } catch(e) {}
+                         }
+
+                         if (id) {
+                            components.push({
+                                id: id,
+                                name: name
+                            });
+                         }
+                     });
+                     return components;
+                };
+                
                 // Function to watch a store
                 window.__watchAlpineStore__ = function(storeName) {
                     if (window.__ALPINE_TRACKED_STORES__.has(storeName)) {
@@ -4963,9 +4998,8 @@ function initMutationTracking() {
                         }
                         
                         window.__ALPINE_TRACKED_STORES__.add(storeName);
-                        console.log('[Alpine DevTools] Now watching store:', storeName);
                         
-                        // --- Function Tracking Setup ---
+                        // --- Global Helper Functions ---
                         const serializeArg = (arg) => {
                              if (arg === null) return null;
                              if (arg === undefined) return undefined;
@@ -4974,7 +5008,6 @@ function initMutationTracking() {
                                  if (arg instanceof Element) return '[Element: ' + arg.tagName.toLowerCase() + ']';
                                  if (arg instanceof Event) return '[Event: ' + arg.type + ']';
                                  try {
-                                     // Check for circular references by trying to stringify
                                      JSON.stringify(arg);
                                      return arg;
                                  } catch (e) {
@@ -4984,72 +5017,191 @@ function initMutationTracking() {
                              return arg;
                         };
 
-                        Object.keys(store).forEach(key => {
-                            try {
-                                if (typeof store[key] === 'function' && key !== 'init') {
-                                    const originalFn = store[key];
-                                    if (!originalFn.__devtools_wrapped) {
-                                        const wrappedFn = function(...args) {
-                                            let result;
-                                            let error;
-                                            try {
-                                                result = originalFn.apply(this, args);
-                                            } catch (err) {
-                                                error = err;
-                                                throw err;
-                                            } finally {
+                        const wrapMethods = (target, namePrefix, isStore = true) => {
+                            if (!target) return;
+                            
+                            // Use Alpine.raw if available to get the underlying object
+                            // This helps when target is a Proxy that doesn't report keys
+                            let workTarget = target;
+                            if (typeof Alpine !== 'undefined' && Alpine.raw) {
+                                workTarget = Alpine.raw(target);
+                            }
+
+                            // Collect all keys including prototype chain and non-enumerables
+                            const keySet = new Set();
+                            for (const key in workTarget) {
+                                keySet.add(key);
+                            }
+                            Object.getOwnPropertyNames(workTarget).forEach(k => keySet.add(k));
+                            
+                            const keys = Array.from(keySet);
+                            
+                            keys.forEach(key => {
+                                try {
+                                    // Skip magic properties to avoid Alpine warnings
+                                    if (key.startsWith('$')) return;
+                                    
+                                    // Accessing property might trigger getters, so wrap in try-catch
+                                    const value = workTarget[key];
+                                    
+                                    // Skip internal Alpine properties
+                                    if (typeof key === 'string' && key.startsWith('_x_')) return;
+
+                                    if (typeof value === 'function' && key !== 'init') {
+                                        const originalFn = value;
+                                        if (!originalFn.__devtools_wrapped) {
+                                            const wrappedFn = function(...args) {
+                                                let result;
+                                                let error;
                                                 try {
-                                                    window.__ALPINE_MUTATIONS_QUEUE__.push({
-                                                        storeName: storeName,
-                                                        property: key + '()',
-                                                        oldValue: args.map(serializeArg), 
-                                                        newValue: error ? '[Error: ' + error.message + ']' : serializeArg(result),
-                                                        mutationType: 'function-call',
-                                                        timestamp: Date.now()
-                                                    });
-                                                } catch(e) { console.error(e); }
-                                            }
-                                            return result;
-                                        };
-                                        wrappedFn.__devtools_wrapped = true;
-                                        store[key] = wrappedFn;
-                                    }
-                                }
-                            } catch (e) { console.error('Error wrapping method', key, e); }
-                        });
-                        // -------------------------------
-                        
-                        let previousSnapshot = JSON.stringify(store);
-                        
-                        setInterval(() => {
-                            try {
-                                const currentSnapshot = JSON.stringify(store);
-                                if (currentSnapshot !== previousSnapshot) {
-                                    const prev = JSON.parse(previousSnapshot);
-                                    const curr = JSON.parse(currentSnapshot);
-                                    
-                                    const allKeys = new Set([...Object.keys(prev), ...Object.keys(curr)]);
-                                    allKeys.forEach(key => {
-                                        if (typeof curr[key] === 'function' || typeof prev[key] === 'function') return;
-                                        
-                                        const prevVal = JSON.stringify(prev[key]);
-                                        const currVal = JSON.stringify(curr[key]);
-                                        if (prevVal !== currVal) {
-                                            window.__ALPINE_MUTATIONS_QUEUE__.push({
-                                                storeName: storeName,
-                                                property: key,
-                                                oldValue: prev[key],
-                                                newValue: curr[key],
-                                                mutationType: prev[key] === undefined ? 'add' : (curr[key] === undefined ? 'delete' : 'set'),
-                                                timestamp: Date.now()
-                                            });
+                                                    result = originalFn.apply(this, args);
+                                                } catch (err) {
+                                                    error = err;
+                                                    throw err;
+                                                } finally {
+                                                    try {
+                                                        if (window.__ALPINE_MUTATIONS_QUEUE__) {
+                                                            const mutation = {
+                                                                storeName: isStore ? 'Store: ' + namePrefix : '-----Component: ' + namePrefix,
+                                                                sourceType: isStore ? 'store' : 'component',
+                                                                property: key + '()',
+                                                                oldValue: args.map(serializeArg), 
+                                                                newValue: error ? '[Error: ' + error.message + ']' : serializeArg(result),
+                                                                mutationType: 'function-call',
+                                                                timestamp: Date.now()
+                                                            };
+                                                            window.__ALPINE_MUTATIONS_QUEUE__.push(mutation);
+                                                        }
+                                                    } catch(e) { console.error(e); }
+                                                }
+                                                return result;
+                                            };
+                                            wrappedFn.__devtools_wrapped = true;
+                                            wrappedFn.__original_fn = originalFn;
+                                            workTarget[key] = wrappedFn;
+                                        } else {
+                                             // already wrapped
                                         }
-                                    });
-                                    
-                                    previousSnapshot = currentSnapshot;
+                                    }
+                                } catch (e) {
+                                    // Ignore errors accessing properties (e.g. getters that fail)
                                 }
-                            } catch(e) {}
-                        }, 200);
+                            });
+                        };
+
+                        // --- Polling Logic for Data Changes ---
+                        if (!window.__ALPINE_TRACKING_INTERVALS__) {
+                            window.__ALPINE_TRACKING_INTERVALS__ = new Map();
+                        }
+
+                        const startPolling = (target, namePrefix, isStore = true) => {
+                             // Initialize snapshot
+                             let previousSnapshot;
+                             try {
+                                 previousSnapshot = JSON.stringify(target);
+                             } catch(e) {
+                                 console.warn('[Alpine DevTools] Cannot stringify target for polling:', namePrefix);
+                                 return;
+                             }
+                             
+                             if (window.__ALPINE_TRACKING_INTERVALS__.has(namePrefix)) {
+                                 clearInterval(window.__ALPINE_TRACKING_INTERVALS__.get(namePrefix));
+                             }
+
+                             const intervalId = setInterval(() => {
+                                 try {
+                                    const currentSnapshot = JSON.stringify(target);
+                                    if (currentSnapshot !== previousSnapshot) {
+                                        const prev = JSON.parse(previousSnapshot);
+                                        const curr = JSON.parse(currentSnapshot);
+                                        
+                                        const allKeys = new Set([...Object.keys(prev), ...Object.keys(curr)]);
+                                        allKeys.forEach(key => {
+                                            if (typeof curr[key] === 'function' || typeof prev[key] === 'function') return;
+                                            
+                                            const prevVal = JSON.stringify(prev[key]);
+                                            const currVal = JSON.stringify(curr[key]);
+                                            if (prevVal !== currVal) {
+                                                window.__ALPINE_MUTATIONS_QUEUE__.push({
+                                                    storeName: isStore ? namePrefix : (namePrefix || 'Component'),
+                                                    sourceType: isStore ? 'store' : 'component',
+                                                    property: key,
+                                                    oldValue: prev[key],
+                                                    newValue: curr[key],
+                                                    mutationType: prev[key] === undefined ? 'add' : (curr[key] === undefined ? 'delete' : 'set'),
+                                                    timestamp: Date.now()
+                                                });
+                                            }
+                                        });
+                                        previousSnapshot = currentSnapshot;
+                                    }
+                                 } catch(e) {}
+                             }, 200);
+                             
+                             window.__ALPINE_TRACKING_INTERVALS__.set(namePrefix, intervalId);
+                        };
+                        
+                        const stopPolling = (namePrefix) => {
+                            if (window.__ALPINE_TRACKING_INTERVALS__.has(namePrefix)) {
+                                clearInterval(window.__ALPINE_TRACKING_INTERVALS__.get(namePrefix));
+                                window.__ALPINE_TRACKING_INTERVALS__.delete(namePrefix);
+                            }
+                        };
+
+                        const unwrapMethods = (target) => {
+                             if (!target) return;
+                             let workTarget = target;
+                             if (typeof Alpine !== 'undefined' && Alpine.raw) {
+                                 workTarget = Alpine.raw(target);
+                             }
+                             
+                             for (const key in workTarget) {
+                                try {
+                                    if (typeof workTarget[key] === 'function' && workTarget[key].__devtools_wrapped && workTarget[key].__original_fn) {
+                                        workTarget[key] = workTarget[key].__original_fn;
+                                    }
+                                } catch(e) {}
+                            }
+                        };
+
+                        // --- Global Toggle Function ---
+                        if (!window.__devtools_toggle_component_tracking__) {
+                            window.__devtools_toggle_component_tracking__ = (componentId, shouldTrack) => {
+                                 try {
+                                     const alpineElements = Array.from(document.querySelectorAll('[x-data]'));
+                                     // Try matching by internal ID or data-attribute
+                                     const el = alpineElements.find(e => 
+                                        e.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__?.id == componentId || 
+                                        e.getAttribute('data-alpine-devtool-id') == componentId
+                                     );
+                                     
+                                     if (el) {
+                                         // Use generic $data which works for both
+                                         const data = Alpine.$data(el);
+                                         
+                                         const nameAttr = el.getAttribute('x-data');
+                                         const name = (nameAttr && nameAttr !== '{}') ? nameAttr : 'Component ' + componentId;
+                                         
+                                         if (shouldTrack) {
+                                             console.log('[Alpine DevTools] Starting tracking for:', name);
+                                             wrapMethods(data, name, false);
+                                             startPolling(data, name, false);
+                                         } else {
+                                             console.log('[Alpine DevTools] Stopping tracking for:', name);
+                                             unwrapMethods(data);
+                                             stopPolling(name);
+                                         }
+                                     } else {
+                                         console.warn('[Alpine DevTools] Component not found for tracking:', componentId);
+                                     }
+                                 } catch(e) {
+                                     console.error('[Alpine DevTools] Toggle tracking error:', e);
+                                 }
+                            };
+                        }
+
+                        wrapMethods(store, storeName, true);
+                        startPolling(store, storeName, true);
                         
                         return 'watching';
                     } catch(e) {
@@ -5058,7 +5210,6 @@ function initMutationTracking() {
                     }
                 };
                 
-                console.log('[Alpine DevTools] Mutation tracking ready');
                 return 'ready';
             })()
         `);
@@ -5070,9 +5221,9 @@ function initMutationTracking() {
                 const storesStore = useStoresStore();
                 const storesList = storesStore?.filteredStores || [];
 
-                if (storesList.length > 0) {
-                    console.log('[DevTools Panel] Found stores:', storesList.map(s => s.name));
-                }
+                // if (storesList.length > 0) {
+                //     console.log('[DevTools Panel] Found stores:', storesList.map(s => s.name));
+                // }
 
                 storesList.forEach(store => {
                     const name = store?.name;
@@ -5126,6 +5277,78 @@ function initMutationTracking() {
 const MutationsTimeline = Re({
     __name: "MutationsTimeline",
     setup(e) {
+        // Use local state for components instead of global store
+        const availableComponents = X([]);
+        const isRefreshingComponents = X(false);
+        const trackedIds = X(new Set());
+        const renderKey = X(0); // Force re-render trigger
+
+        const refreshComponents = () => {
+            console.log('[DevTools] refreshComponents called');
+            isRefreshingComponents.value = true;
+            he.devtools.inspectedWindow.eval('window.__getAlpineComponents__ && JSON.stringify(window.__getAlpineComponents__())', (result, isException) => {
+                console.log('[DevTools] Eval callback - result:', result, 'isException:', isException);
+                isRefreshingComponents.value = false;
+                if (!isException && result) {
+                    try {
+                        const parsed = JSON.parse(result);
+                        console.log('[DevTools] Parsed components:', parsed);
+                        // Force reactivity by creating new array reference
+                        availableComponents.value = [...parsed];
+                        renderKey.value++; // Force re-render
+                        console.log('[DevTools] availableComponents.value after assignment:', availableComponents.value);
+                        console.log('[DevTools] availableComponents.value.length:', availableComponents.value.length);
+                        console.log('[DevTools] renderKey:', renderKey.value);
+                    } catch (e) {
+                        console.error('[DevTools] Failed to parse components:', e, 'Raw result:', result);
+                        availableComponents.value = [];
+                    }
+                } else {
+                    console.warn('[DevTools] No result or exception occurred');
+                    availableComponents.value = [];
+                }
+            });
+        };
+
+        // Refresh on mount
+        ut(() => {
+            refreshComponents();
+        });
+
+        const toggleComponent = (event) => {
+            const id = event.target.value;
+            console.log('[DevTools] toggleComponent called, id:', id);
+            if (!id) return;
+
+            const shouldTrack = !trackedIds.value.has(id);
+            console.log('[DevTools] shouldTrack:', shouldTrack, 'current trackedIds:', Array.from(trackedIds.value));
+
+            he.devtools.inspectedWindow.eval(`
+                window.__devtools_toggle_component_tracking__ && 
+                window.__devtools_toggle_component_tracking__("${id}", ${shouldTrack})
+            `, (res, err) => {
+                console.log('[DevTools] Toggle callback - res:', res, 'err:', err);
+                if (!err) {
+                    if (shouldTrack) trackedIds.value.add(id);
+                    else trackedIds.value.delete(id);
+                    renderKey.value++; // Force re-render to update checkmarks
+                    console.log('[DevTools] After toggle - trackedIds:', Array.from(trackedIds.value), 'renderKey:', renderKey.value);
+                }
+            });
+
+            // Reset select
+            event.target.value = "";
+        };
+
+        // Computed property to ensure reactivity
+        const componentCount = te(() => availableComponents.value.length);
+
+        // Computed to track Set changes (Sets aren't reactive by default)
+        const trackedIdsArray = te(() => {
+            renderKey.value; // Force dependency on renderKey
+            return Array.from(trackedIds.value);
+        });
+
         const filteredMutations = te(() => {
             if (!storeFilter.value) return mutationsData.value;
             return mutationsData.value.filter(m =>
@@ -5277,9 +5500,63 @@ const MutationsTimeline = Re({
                         b("div", Mb_container, [
                             b("div", Mb_header, [
                                 b("div", { class: "flex items-center gap-2" }, [
+                                    b("select", {
+                                        key: G(renderKey), // Force re-render when renderKey changes
+                                        class: "h-6 max-w-[150px] rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+                                        onChange: toggleComponent
+                                    }, [
+                                        b("option", { value: "", disabled: "", selected: "" }, "Component:"),
+                                        (C(!0),
+                                            N(
+                                                ce,
+                                                null,
+                                                Oe(
+                                                    G(availableComponents),
+                                                    (comp) => (
+                                                        C(),
+                                                        N(
+                                                            "option",
+                                                            {
+                                                                key: comp.id,
+                                                                value: comp.id,
+                                                            },
+                                                            (G(trackedIdsArray).includes(String(comp.id)) ? "✓ " : "") + re(comp.name),
+                                                            9, // TEXT + PROPS
+                                                            ["value"]
+                                                        )
+                                                    )
+                                                ),
+                                                128
+                                            ))
+                                    ]),
+                                    // Refresh Button
+                                    b("button", {
+                                        class: "flex items-center justify-center p-1 rounded hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark text-devtools-text-secondary dark:text-devtools-text-secondary-dark",
+                                        title: "Refresh Component List",
+                                        onClick: refreshComponents
+                                    }, [
+                                        b("svg", {
+                                            xmlns: "http://www.w3.org/2000/svg",
+                                            class: de(["h-4 w-4", { "animate-spin": G(isRefreshingComponents) }]),
+                                            fill: "none",
+                                            viewBox: "0 0 24 24",
+                                            stroke: "currentColor"
+                                        }, [
+                                            b("path", {
+                                                "stroke-linecap": "round",
+                                                "stroke-linejoin": "round",
+                                                "stroke-width": "2",
+                                                d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                            })
+                                        ])
+                                    ], 8, ["onClick"]),
+                                    // Debug badge to verify state updates
+                                    b("span", {
+                                        class: "px-2 py-0.5 text-[10px] bg-blue-500 text-white rounded"
+                                    }, "Components: " + re(G(componentCount)) + " (key: " + re(G(renderKey)) + ")", 1),
                                     b("input", {
                                         type: "text",
-                                        placeholder: "Filter by store...",
+                                        placeholder: "Filter...",
                                         class: "h-6 w-32 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
                                         value: G(storeFilter),
                                         onInput: (e) => { storeFilter.value = e.target.value; }
