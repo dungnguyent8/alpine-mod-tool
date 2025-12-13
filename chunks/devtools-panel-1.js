@@ -4951,13 +4951,20 @@ function initMutationTracking() {
                      const components = [];
                      document.querySelectorAll('[x-data]').forEach((el, index) => {
                          let name = el.getAttribute('x-data');
-                         if (!name || name === '{}') {
-                             name = 'Component ' + (index + 1);
-                         }
-                         
-                         // Simple clean up of x-data="{ foo: ... }" to just "foo" if simple
-                         if (name.startsWith('{')) {
-                              name = 'Anonymous Component ' + (index + 1);
+                         // Try to get a better name from other attributes if x-data is generic or empty
+                         if (!name || name === '{}' || name.startsWith('{')) {
+                             if (el.hasAttribute('x-id')) {
+                                 name = el.getAttribute('x-id'); 
+                             } else if (el.id) {
+                                 name = '#' + el.id;
+                             } else if (el.getAttribute('name')) {
+                                 name = el.getAttribute('name');
+                             } else if (!name || name === '{}') {
+                                 name = 'Component ' + (index + 1);
+                             } else {
+                                // Keep the raw object string if it's short, otherwise anonymize
+                                name = name.length > 20 ? 'Anonymous Component ' + (index + 1) : name;
+                             }
                          }
 
                          // Reuse existing ID if available or assign one
@@ -5502,7 +5509,7 @@ const MutationsTimeline = Re({
                                 b("div", { class: "flex w-full items-center gap-1" }, [
                                     b("select", {
                                         key: G(renderKey), // Force re-render when renderKey changes
-                                        class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+                                        class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark text-green-600",
                                         onChange: toggleComponent
                                     }, [
                                         b("option", { value: "", disabled: "", selected: "" }, "Component:"),
