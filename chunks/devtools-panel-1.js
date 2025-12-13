@@ -4884,19 +4884,20 @@ const xy = Re({
 
 // ==================== MUTATIONS TIMELINE ====================
 const Mb_container = {
-    class: "relative flex h-full max-h-full min-h-full min-w-full flex-col justify-start overflow-y-auto bg-devtools-surface p-1 scrollbar-hide dark:bg-devtools-surface-dark",
+    class: "relative flex h-full max-h-full min-h-full min-w-full flex-col justify-start overflow-y-auto bg-devtools-surface p-1 dark:bg-devtools-surface-dark",
 };
 const Mb_header = {
-    class: "sticky left-0 top-0 z-20 flex h-[32px] w-full items-center justify-between border-b border-devtools-divider bg-devtools-surface px-2 dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+    class: "sticky left-0 top-0 z-20 flex w-full flex-col gap-2 border-b border-devtools-divider bg-devtools-surface p-2 dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
 };
 const Mb_item = {
-    class: "flex w-full cursor-pointer items-center justify-between overflow-hidden break-all rounded px-2 py-1 text-left font-mono transition hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark",
+    class: "flex w-full cursor-pointer items-center justify-between break-all rounded px-2 py-1 text-left font-mono transition hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark",
 };
 const Mb_empty = {
     class: "flex h-full w-full items-center justify-center p-4 text-devtools-text-secondary dark:text-devtools-text-secondary-dark",
 };
 const Mb_detail = {
-    class: "relative flex h-full max-h-full flex-col overflow-y-auto bg-devtools-surface scrollbar-hide dark:bg-devtools-surface-dark",
+    class: "relative flex h-full max-h-full flex-col overflow-y-auto bg-devtools-surface scrollbar-thin dark:bg-devtools-surface-dark",
+    style: "scrollbar-width: thin;",
 };
 const Mb_badge = {
     class: "ml-2 rounded bg-devtools-primary px-1.5 py-0.5 text-[10px] font-medium text-white dark:bg-devtools-primary-dark",
@@ -4907,10 +4908,10 @@ let mutationsData = X([]);
 let mutationIdCounter = X(0);
 let selectedMutation = X(null);
 let storeFilter = X("");
-let isTracking = X(true);
+
 
 function addMutation(mutation) {
-    if (!isTracking.value) return;
+
     mutationIdCounter.value++;
     mutationsData.value.push({
         id: mutationIdCounter.value,
@@ -5068,7 +5069,7 @@ function initMutationTracking() {
                                                             window.__ALPINE_FN_CACHE__[fnId] = originalFn;
 
                                                             const mutation = {
-                                                                storeName: isStore ? 'Store: ' + namePrefix : '-----Component: ' + namePrefix,
+                                                                storeName: isStore ? 'Store: ' + namePrefix : '-- x-data: ' + namePrefix,
                                                                 sourceType: isStore ? 'store' : 'component',
                                                                 property: key + '()',
                                                                 oldValue: args.map(serializeArg), 
@@ -5249,7 +5250,7 @@ function initMutationTracking() {
         // Poll for mutations
         if (pollingInterval) clearInterval(pollingInterval);
         pollingInterval = setInterval(() => {
-            if (!isTracking.value) return;
+
 
             he.devtools.inspectedWindow.eval(`
                 (function() {
@@ -5293,21 +5294,15 @@ const MutationsTimeline = Re({
         const renderKey = X(0); // Force re-render trigger
 
         const refreshComponents = () => {
-            console.log('[DevTools] refreshComponents called');
             isRefreshingComponents.value = true;
             he.devtools.inspectedWindow.eval('window.__getAlpineComponents__ && JSON.stringify(window.__getAlpineComponents__())', (result, isException) => {
-                console.log('[DevTools] Eval callback - result:', result, 'isException:', isException);
                 isRefreshingComponents.value = false;
                 if (!isException && result) {
                     try {
                         const parsed = JSON.parse(result);
-                        console.log('[DevTools] Parsed components:', parsed);
                         // Force reactivity by creating new array reference
                         availableComponents.value = [...parsed];
                         renderKey.value++; // Force re-render
-                        console.log('[DevTools] availableComponents.value after assignment:', availableComponents.value);
-                        console.log('[DevTools] availableComponents.value.length:', availableComponents.value.length);
-                        console.log('[DevTools] renderKey:', renderKey.value);
                     } catch (e) {
                         console.error('[DevTools] Failed to parse components:', e, 'Raw result:', result);
                         availableComponents.value = [];
@@ -5326,22 +5321,18 @@ const MutationsTimeline = Re({
 
         const toggleComponent = (event) => {
             const id = event.target.value;
-            console.log('[DevTools] toggleComponent called, id:', id);
             if (!id) return;
 
             const shouldTrack = !trackedIds.value.has(id);
-            console.log('[DevTools] shouldTrack:', shouldTrack, 'current trackedIds:', Array.from(trackedIds.value));
 
             he.devtools.inspectedWindow.eval(`
                 window.__devtools_toggle_component_tracking__ && 
                 window.__devtools_toggle_component_tracking__("${id}", ${shouldTrack})
             `, (res, err) => {
-                console.log('[DevTools] Toggle callback - res:', res, 'err:', err);
                 if (!err) {
                     if (shouldTrack) trackedIds.value.add(id);
                     else trackedIds.value.delete(id);
                     renderKey.value++; // Force re-render to update checkmarks
-                    console.log('[DevTools] After toggle - trackedIds:', Array.from(trackedIds.value), 'renderKey:', renderKey.value);
                 }
             });
 
@@ -5350,8 +5341,6 @@ const MutationsTimeline = Re({
         };
 
         // Computed property to ensure reactivity
-        const componentCount = te(() => availableComponents.value.length);
-
         // Computed to track Set changes (Sets aren't reactive by default)
         const trackedIdsArray = te(() => {
             renderKey.value; // Force dependency on renderKey
@@ -5508,10 +5497,10 @@ const MutationsTimeline = Re({
                     left: Mt(() => [
                         b("div", Mb_container, [
                             b("div", Mb_header, [
-                                b("div", { class: "flex items-center gap-2" }, [
+                                b("div", { class: "flex w-full items-center gap-1" }, [
                                     b("select", {
                                         key: G(renderKey), // Force re-render when renderKey changes
-                                        class: "h-6 max-w-[150px] rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+                                        class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
                                         onChange: toggleComponent
                                     }, [
                                         b("option", { value: "", disabled: "", selected: "" }, "Component:"),
@@ -5559,26 +5548,16 @@ const MutationsTimeline = Re({
                                             })
                                         ])
                                     ], 8, ["onClick"]),
-                                    // Debug badge to verify state updates
-                                    b("span", {
-                                        class: "px-2 py-0.5 text-[10px] bg-blue-500 text-white rounded"
-                                    }, "Components: " + re(G(componentCount)) + " (key: " + re(G(renderKey)) + ")", 1),
+                                ]),
+                                b("div", { class: "flex w-full items-center gap-1" }, [
                                     b("input", {
                                         type: "text",
                                         placeholder: "Filter...",
-                                        class: "h-6 w-32 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+                                        class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
                                         value: G(storeFilter),
                                         onInput: (e) => { storeFilter.value = e.target.value; }
                                     }, null, 40, ["value", "onInput"]),
                                     b("span", Mb_badge, re(G(mutationsData).length), 1),
-                                ]),
-                                b("div", { class: "flex items-center gap-1" }, [
-                                    b("button", {
-                                        class: "rounded px-2 py-0.5 text-[10px] hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark " + (G(isTracking) ? "text-green-500" : "text-amber-500"),
-                                        onClick: () => {
-                                            isTracking.value = !isTracking.value;
-                                        }
-                                    }, G(isTracking) ? "⏸ Tracking" : "▶ Resume", 8, ["onClick"]),
                                     b("button", {
                                         class: "rounded px-2 py-0.5 text-[10px] text-red-500 hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark",
                                         onClick: clearMutations
@@ -5623,7 +5602,8 @@ const MutationsTimeline = Re({
                                     ]),
                                     b("div", { class: "mb-3" }, [
                                         b("div", { class: "text-red-500 dark:text-red-400 font-semibold mb-1" },
-                                            G(selectedMutation).mutationType === 'function-call' ? "Arguments:" : "Old Value:"
+                                            re(G(selectedMutation).mutationType === 'function-call' ? "Arguments:" : "Old Value:"),
+                                            1
                                         ),
                                         b("pre", {
                                             class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
@@ -5635,7 +5615,8 @@ const MutationsTimeline = Re({
                                     ]),
                                     b("div", { class: "mb-3" }, [
                                         b("div", { class: "text-green-600 dark:text-green-400 font-semibold mb-1" },
-                                            G(selectedMutation).mutationType === 'function-call' ? "Return Value:" : "New Value:"
+                                            re(G(selectedMutation).mutationType === 'function-call' ? "Return Value:" : "New Value:"),
+                                            1
                                         ),
                                         b("pre", {
                                             class: "bg-devtools-element-header dark:bg-devtools-element-header-dark rounded p-2 text-[10px] overflow-x-auto text-devtools-text-primary dark:text-devtools-text-primary-dark font-mono whitespace-pre",
@@ -5650,7 +5631,7 @@ const MutationsTimeline = Re({
                                     ]),
                                     // Simple View Source button
                                     b("button", {
-                                        class: "mt-3 flex items-center gap-1 px-3 py-1.5 text-[11px] bg-blue-500 hover:bg-blue-600 text-white rounded font-medium",
+                                        class: "mt-3 flex items-center gap-1 px-3 py-1.5 text-[11px] bg-blue-500 text-white rounded font-medium hover:bg-devtools-primary-hover cursor-pointer",
                                         onClick: () => {
                                             const m = G(selectedMutation);
 
