@@ -1573,7 +1573,7 @@ const Rm = Re({
                 {
                     class: de([
                         "border-devtools-divider dark:border-devtools-divider-dark flex h-full flex-shrink-0 flex-col border-r transition-all duration-200 ease-in-out",
-                        n.value ? "w-[51px]" : "w-[251px]",
+                        n.value ? "w-[51px]" : "w-[120px]",
                     ]),
                 },
                 [
@@ -2978,12 +2978,11 @@ const Gg = Re({
 
                                 // Also try Alpine data stack
                                 if (targetElement._x_dataStack && targetElement._x_dataStack.length > 0) {
-                                    console.log('Alpine data stack:', targetElement._x_dataStack);
                                     // Try to find method in data stack
                                     for (const data of targetElement._x_dataStack) {
                                         if (data && typeof data["${methodName}"] === 'function') {
                                             const method = data["${methodName}"];
-                                            console.log('Method found in data stack:', method);
+                                            inspect(method);
                                             return;
                                         }
                                     }
@@ -4517,10 +4516,13 @@ const xy = Re({
                     (function() {
                         try {
                             const storeData = Alpine.store("${storeName}");
-                            window.vm_${methodName} = storeData["${methodName}"];
-                            console.log('vm_${methodName}');
-                            console.log(vm_${methodName});
-
+                            if (storeData) {
+                                let fn = storeData["${methodName}"];
+                                if (fn && fn.__original_fn) {
+                                    fn = fn.__original_fn;
+                                }
+                                inspect(fn);
+                            }
                         } catch (e) {
                             console.error('Error accessing store method:', e);
                         }
@@ -4986,7 +4988,7 @@ function initMutationTracking() {
                     }
                     
                     if (typeof Alpine === 'undefined') {
-                        console.error('[Alpine DevTools] Alpine not defined');
+                        console.log('[Alpine DevTools] Alpine not defined');
                         return 'no_alpine';
                     }
                     
@@ -5061,6 +5063,10 @@ function initMutationTracking() {
                                                 } finally {
                                                     try {
                                                         if (window.__ALPINE_MUTATIONS_QUEUE__) {
+                                                            const fnId = 'fn_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                                                            if (!window.__ALPINE_FN_CACHE__) window.__ALPINE_FN_CACHE__ = {};
+                                                            window.__ALPINE_FN_CACHE__[fnId] = originalFn;
+
                                                             const mutation = {
                                                                 storeName: isStore ? 'Store: ' + namePrefix : '-----Component: ' + namePrefix,
                                                                 sourceType: isStore ? 'store' : 'component',
@@ -5068,7 +5074,8 @@ function initMutationTracking() {
                                                                 oldValue: args.map(serializeArg), 
                                                                 newValue: error ? '[Error: ' + error.message + ']' : serializeArg(result),
                                                                 mutationType: 'function-call',
-                                                                timestamp: Date.now()
+                                                                timestamp: Date.now(),
+                                                                fnId: fnId
                                                             };
                                                             window.__ALPINE_MUTATIONS_QUEUE__.push(mutation);
                                                         }
@@ -5077,6 +5084,7 @@ function initMutationTracking() {
                                                 return result;
                                             };
                                             wrappedFn.__devtools_wrapped = true;
+                                            try { Object.defineProperty(wrappedFn, 'name', { value: key }); } catch (e) {}
                                             wrappedFn.__original_fn = originalFn;
                                             workTarget[key] = wrappedFn;
                                         } else {
@@ -5262,7 +5270,8 @@ function initMutationTracking() {
                             oldValue: m.oldValue,
                             newValue: m.newValue,
                             mutationType: m.mutationType,
-                            pageTimestamp: m.timestamp
+                            pageTimestamp: m.timestamp,
+                            fnId: m.fnId
                         });
                     });
                 } catch (e) { }
@@ -5639,6 +5648,23 @@ const MutationsTimeline = Re({
                                     b("div", { class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark text-[10px]" }, [
                                         re("Type: " + G(selectedMutation).mutationType + " | Time: " + formatTime(G(selectedMutation).timestamp)),
                                     ]),
+                                    // Simple View Source button
+                                    b("button", {
+                                        class: "mt-3 flex items-center gap-1 px-3 py-1.5 text-[11px] bg-blue-500 hover:bg-blue-600 text-white rounded font-medium",
+                                        onClick: () => {
+                                            const m = G(selectedMutation);
+
+                                            if (m.fnId) {
+                                                he.devtools.inspectedWindow.eval(`
+                                                    window.__ALPINE_FN_CACHE__ && 
+                                                    window.__ALPINE_FN_CACHE__["${m.fnId}"] && 
+                                                    inspect(window.__ALPINE_FN_CACHE__["${m.fnId}"])
+                                                `);
+                                            } else {
+                                                console.warn('[DevTools] No fnId available for inspection');
+                                            }
+                                        }
+                                    }, "📄 View Source", 8, ["onClick"]),
                                 ]))
                                 : (C(), N("div", { key: 1, ...Mb_empty }, " Select a mutation to see its details. ")),
                         ]),
