@@ -5076,7 +5076,7 @@ function initMutationTracking() {
                                                             window.__ALPINE_FN_CACHE__[fnId] = originalFn;
 
                                                             const mutation = {
-                                                                storeName: isStore ? 'Store: ' + namePrefix : '-- x-data: ' + namePrefix,
+                                                                storeName: namePrefix,
                                                                 sourceType: isStore ? 'store' : 'component',
                                                                 property: key + '()',
                                                                 oldValue: args.map(serializeArg), 
@@ -5274,6 +5274,7 @@ function initMutationTracking() {
                     mutations.forEach(m => {
                         addMutation({
                             storeName: m.storeName,
+                            sourceType: m.sourceType,
                             property: m.property,
                             oldValue: m.oldValue,
                             newValue: m.newValue,
@@ -5299,6 +5300,7 @@ const MutationsTimeline = Re({
         const isRefreshingComponents = X(false);
         const trackedIds = X(new Set());
         const renderKey = X(0); // Force re-render trigger
+        const isDropdownOpen = X(false); // Custom dropdown state
 
         const refreshComponents = () => {
             isRefreshingComponents.value = true;
@@ -5327,7 +5329,7 @@ const MutationsTimeline = Re({
         });
 
         const toggleComponent = (event) => {
-            const id = event.target.value;
+            const id = String(event.target.value);
             if (!id) return;
 
             const shouldTrack = !trackedIds.value.has(id);
@@ -5337,21 +5339,21 @@ const MutationsTimeline = Re({
                 window.__devtools_toggle_component_tracking__("${id}", ${shouldTrack})
             `, (res, err) => {
                 if (!err) {
-                    if (shouldTrack) trackedIds.value.add(id);
-                    else trackedIds.value.delete(id);
+                    // Create new Set to trigger reactivity
+                    const newSet = new Set(trackedIds.value);
+                    if (shouldTrack) newSet.add(id);
+                    else newSet.delete(id);
+                    trackedIds.value = newSet;
                     renderKey.value++; // Force re-render to update checkmarks
                 }
             });
-
-            // Reset select
-            event.target.value = "";
         };
 
         // Computed property to ensure reactivity
         // Computed to track Set changes (Sets aren't reactive by default)
         const trackedIdsArray = te(() => {
             renderKey.value; // Force dependency on renderKey
-            return Array.from(trackedIds.value);
+            return Array.from(trackedIds.value).map(String);
         });
 
         const filteredMutations = te(() => {
@@ -5507,34 +5509,63 @@ const MutationsTimeline = Re({
                         b("div", Mb_container, [
                             b("div", Mb_header, [
                                 b("div", { class: "flex w-full items-center gap-1" }, [
-                                    b("select", {
-                                        key: G(renderKey), // Force re-render when renderKey changes
-                                        class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark text-green-600",
-                                        onChange: toggleComponent
-                                    }, [
-                                        b("option", { value: "", disabled: "", selected: "" }, "Component:"),
-                                        (C(!0),
-                                            N(
-                                                ce,
-                                                null,
-                                                Oe(
-                                                    G(availableComponents),
-                                                    (comp) => (
-                                                        C(),
-                                                        N(
-                                                            "option",
-                                                            {
-                                                                key: comp.id,
-                                                                value: comp.id,
-                                                            },
-                                                            (G(trackedIdsArray).includes(String(comp.id)) ? "✓ " : "") + re(comp.name),
-                                                            9, // TEXT + PROPS
-                                                            ["value"]
-                                                        )
-                                                    )
-                                                ),
-                                                128
-                                            ))
+                                    // Custom Dropdown
+                                    b("div", { class: "relative flex-1" }, [
+                                        // Dropdown Button
+                                        b("button", {
+                                            class: "flex w-full items-center justify-between rounded border border-devtools-divider bg-devtools-surface px-2 py-1 text-[11px] text-green-600 dark:border-devtools-divider-dark dark:bg-devtools-surface-dark h-6",
+                                            onClick: () => { isDropdownOpen.value = !isDropdownOpen.value; }
+                                        }, [
+                                            b("span", { class: "truncate" }, re(G(trackedIdsArray).length > 0 ? G(trackedIdsArray).length + " component(s) tracked" : "Select Component"), 1),
+                                            b("span", { class: "ml-1 opacity-50" }, "▼")
+                                        ]),
+                                        // Dropdown Menu
+                                        G(isDropdownOpen) ? (C(), N("div", {
+                                            key: 0,
+                                            class: "absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded border border-devtools-divider bg-devtools-surface shadow-lg dark:border-devtools-divider-dark dark:bg-devtools-surface-dark"
+                                        }, [
+                                            (C(!0), N(ce, null, Oe(G(availableComponents), (comp) => (
+                                                C(), N("div", {
+                                                    key: comp.id,
+                                                    class: de([
+                                                        "cursor-pointer truncate px-2 py-1 text-[11px] hover:bg-devtools-state-hover dark:hover:bg-devtools-state-hover-dark",
+                                                        { "bg-devtools-state-selected dark:bg-devtools-state-selected-dark": G(trackedIdsArray).includes(String(comp.id)) }
+                                                    ]),
+                                                    onClick: () => {
+                                                        toggleComponent({ target: { value: comp.id } });
+                                                        isDropdownOpen.value = false;
+                                                    },
+                                                    onMouseenter: () => {
+                                                        he.devtools.inspectedWindow.eval(`
+                                                            (function() {
+                                                                var existing = document.getElementById('__alpine_devtools_highlight__');
+                                                                if (existing) existing.remove();
+                                                                var els = document.querySelectorAll('[x-data]');
+                                                                for (var i = 0; i < els.length; i++) {
+                                                                    var el = els[i];
+                                                                    if ((el.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__ && el.__ALPINEJS_PRO_DEVTOOLS_COMPONENT_INTERNALS__.id == "${comp.id}") || el.getAttribute('data-alpine-devtool-id') == "${comp.id}") {
+                                                                        var rect = el.getBoundingClientRect();
+                                                                        var overlay = document.createElement('div');
+                                                                        overlay.id = '__alpine_devtools_highlight__';
+                                                                        overlay.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;background:rgba(100,149,237,0.3);border:2px solid cornflowerblue;z-index:999999;pointer-events:none;';
+                                                                        document.body.appendChild(overlay);
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            })()
+                                                        `);
+                                                    },
+                                                    onMouseleave: () => {
+                                                        he.devtools.inspectedWindow.eval(`
+                                                            var o = document.getElementById('__alpine_devtools_highlight__');
+                                                            if (o) o.remove();
+                                                        `);
+                                                    }
+                                                }, [
+                                                    b("span", null, re((G(trackedIdsArray).includes(String(comp.id)) ? "✓ " : "") + comp.name), 1)
+                                                ], 42, ["onClick", "onMouseenter", "onMouseleave"])
+                                            )), 128))
+                                        ])) : ae("", true)
                                     ]),
                                     // Refresh Button
                                     b("button", {
@@ -5588,7 +5619,13 @@ const MutationsTimeline = Re({
                                         onClick: () => selectMutation(m)
                                     }, [
                                         b("div", { class: "flex items-center gap-2" }, [
-                                            b("span", { class: m.mutationType === 'function-call' ? "text-green-400 dark:text-green-400" : "text-devtools-primary dark:text-devtools-primary-dark font-semibold" }, re(m.storeName), 1),
+                                            // Source type badge
+                                            b("span", {
+                                                class: m.sourceType === 'store'
+                                                    ? "px-1 py-0.5 rounded text-[9px] text-green-600 font-medium bg-green-500/20 text-green-400"
+                                                    : "px-1 py-0.5 rounded text-[9px] text-white"
+                                            }, re(m.sourceType === 'store' ? 'S' : 'C'), 1),
+                                            b("span", { class: m.sourceType === 'store' ? "text-red-500 dark:text-red-400" : "text-white" }, re(m.storeName), 1),
                                             b("span", { class: m.mutationType === 'function-call' ? "text-green-400 dark:text-green-400" : "text-devtools-text-secondary dark:text-devtools-text-secondary-dark" }, "." + re(m.property), 1),
                                         ]),
                                         b("span", { class: "text-devtools-text-disabled dark:text-devtools-text-disabled-dark text-[10px]" }, re(formatTime(m.timestamp)), 1),
@@ -5601,8 +5638,13 @@ const MutationsTimeline = Re({
                         b("div", Mb_detail, [
                             G(selectedMutation)
                                 ? (C(), N("div", { key: 0, class: "p-3" }, [
-                                    b("div", { class: "mb-3 font-semibold text-devtools-text-primary dark:text-devtools-text-primary-dark" }, [
-                                        re("Store: "),
+                                    b("div", { class: "mb-3 font-semibold text-devtools-text-primary dark:text-devtools-text-primary-dark flex items-center gap-2" }, [
+                                        re("Source: "),
+                                        b("span", {
+                                            class: G(selectedMutation).sourceType === 'store'
+                                                ? "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400"
+                                                : "px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/20 text-blue-400"
+                                        }, re(G(selectedMutation).sourceType === 'store' ? 'Store' : 'Component'), 1),
                                         b("span", { class: "text-devtools-primary dark:text-devtools-primary-dark" }, re(G(selectedMutation).storeName), 1),
                                     ]),
                                     b("div", { class: "mb-3" }, [
