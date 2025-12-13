@@ -5358,11 +5358,27 @@ const MutationsTimeline = Re({
 
         const filteredMutations = te(() => {
             if (!storeFilter.value) return mutationsData.value;
-            const filterText = storeFilter.value.toLowerCase();
-            return mutationsData.value.filter(m =>
-                m.storeName.toLowerCase().includes(filterText) ||
-                (m.property && m.property.toLowerCase().includes(filterText))
-            );
+
+            // Split by comma and trim each keyword, filter out empty strings
+            const keywords = storeFilter.value
+                .split(',')
+                .map(k => k.trim().toLowerCase())
+                .filter(k => k.length > 0);
+
+            if (keywords.length === 0) return mutationsData.value;
+
+            return mutationsData.value.filter(m => {
+                // Build searchable text from mutation data
+                const searchText = [
+                    m.storeName || '',
+                    m.property || '',
+                    m.sourceType || '',
+                    m.mutationType || ''
+                ].join(' ').toLowerCase();
+
+                // All keywords must be present in the searchable text
+                return keywords.every(keyword => searchText.includes(keyword));
+            });
         });
 
         const formatTime = (date) => {
@@ -5592,7 +5608,7 @@ const MutationsTimeline = Re({
                                 b("div", { class: "flex w-full items-center gap-1" }, [
                                     b("input", {
                                         type: "text",
-                                        placeholder: "Filter...",
+                                        placeholder: "Filter...(use \",\" to separate keywords)",
                                         class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] text-green-600 dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
                                         value: G(storeFilter),
                                         onInput: (e) => { storeFilter.value = e.target.value; }
