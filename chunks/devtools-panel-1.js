@@ -5349,8 +5349,10 @@ const MutationsTimeline = Re({
 
         const filteredMutations = te(() => {
             if (!storeFilter.value) return mutationsData.value;
+            const filterText = storeFilter.value.toLowerCase();
             return mutationsData.value.filter(m =>
-                m.storeName.toLowerCase().includes(storeFilter.value.toLowerCase())
+                m.storeName.toLowerCase().includes(filterText) ||
+                (m.property && m.property.toLowerCase().includes(filterText))
             );
         });
 
@@ -5553,7 +5555,7 @@ const MutationsTimeline = Re({
                                     b("input", {
                                         type: "text",
                                         placeholder: "Filter...",
-                                        class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
+                                        class: "h-6 flex-1 rounded border border-devtools-divider bg-devtools-surface px-2 text-[11px] text-green-600 dark:border-devtools-divider-dark dark:bg-devtools-surface-dark",
                                         value: G(storeFilter),
                                         onInput: (e) => { storeFilter.value = e.target.value; }
                                     }, null, 40, ["value", "onInput"]),
